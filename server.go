@@ -8,16 +8,24 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/coopernurse/gorp"
 	"github.com/go-martini/martini"
 	_ "github.com/lib/pq"
 	"github.com/martini-contrib/render"
 )
 
-func SetupDB() *sql.DB {
+func SetupDB() *gorp.DbMap {
 	db, err := sql.Open("postgres", "dbname=bunkai sslmode=disable")
 	PanicIf(err)
 
-	return db
+	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.PostgresDialect{}}
+	dbmap.AddTableWithName(Sentence{}, "sentences").SetKeys(true, "Id")
+	dbmap.AddTableWithName(User{}, "users").SetKeys(true, "Id")
+
+	err = dbmap.CreateTablesIfNotExists()
+	PanicIf(err)
+
+	return dbmap
 }
 
 func PanicIf(err error) {
@@ -27,9 +35,27 @@ func PanicIf(err error) {
 }
 
 type Sentence struct {
+	Id        int64
+	UserId    int64
 	Text      string
 	Url       string
+	CreatedAt int64
+}
+
+func newSentence(text, url string) Sentence {
+	return Sentence{
+		Text:      text,
+		Url:       url,
+		CreatedAt: time.Now().UnixNano(),
+	}
+}
+
+type User struct {
+	Id        int64 `db:"post_id"`
+	Email     string
+	Password  string
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (sen *Sentence) Validate() (bool, error) {
@@ -47,33 +73,6 @@ func (sen *Sentence) Validate() (bool, error) {
 	return true, nil
 }
 
-func (sen *Sentence) Save(db *sql.DB) error {
-	_, verr := sen.Validate()
-
-	rows, err := db.Query("INSERT INTO sentences (text, url, created_at) VALUES ($1, $2, $3)",
-		sen.Text,
-		sen.Url,
-		sen.CreatedAt)
-	PanicIf(err)
-	defer rows.Close()
-
-	return verr
-}
-
-func SentenceList(db *sql.DB, limit int) []Sentence {
-	rows, err := db.Query("select text, url, created_at from sentences LIMIT $1", limit)
-	PanicIf(err)
-	s := make([]Sentence, limit)
-	for rows.Next() {
-		var text, url string
-		var created_at time.Time
-		err := rows.Scan(&text, &url, &created_at)
-		PanicIf(err)
-		s = append(s, Sentence{text, url, created_at})
-	}
-	return s
-}
-
 func main() {
 	m := martini.Classic()
 	m.Map(SetupDB())
@@ -84,8 +83,8 @@ func main() {
 	log.Println("env is", martini.Env)
 
 	m.Get("/", Home)
-	m.Post("/create", Create)
-	m.Get("/list", List)
+	m.Post("/sentences", Create)
+	m.Get("/sentences", List)
 
 	m.Run()
 }
@@ -94,20 +93,24 @@ func Home(ren render.Render) {
 	ren.HTML(200, "home", nil)
 }
 
-func Create(ren render.Render, req *http.Request, db *sql.DB) {
-	sentence := Sentence{req.FormValue("text"), req.FormValue("url"), time.Now()}
-	err := sentence.Save(db)
+func Create(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
+	sentence := newSentence(req.FormValue("text"), req.FormValue("url"))
+	_, err := sentence.Validate()
+
 	if err != nil {
 		msg := make(map[string]string)
 		msg["error"] = err.Error()
 		ren.JSON(400, msg)
 	} else {
+		err = dbmap.Insert(&sentence)
+		PanicIf(err)
 		ren.JSON(200, sentence)
 	}
-
 }
 
-func List(ren render.Render, req *http.Request, db *sql.DB) {
-	s := SentenceList(db, 100)
-	ren.JSON(200, s)
+func List(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
+	var sens []Sentence
+	_, err := dbmap.Select(&sens, "select * from sentences order by id")
+	PanicIf(err)
+	ren.JSON(200, sens)
 }
