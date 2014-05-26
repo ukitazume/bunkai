@@ -83,8 +83,9 @@ func main() {
 	log.Println("env is", martini.Env)
 
 	m.Get("/", Home)
-	m.Post("/sentences", Create)
-	m.Get("/sentences", List)
+	m.Post("/sentences", SentenceCreate)
+	m.Get("/sentences", SentenceList)
+	m.Delete("/sentences/:id", SentenceDelete)
 
 	m.Run()
 }
@@ -93,7 +94,7 @@ func Home(ren render.Render) {
 	ren.HTML(200, "home", nil)
 }
 
-func Create(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
+func SentenceCreate(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
 	sentence := newSentence(req.FormValue("text"), req.FormValue("url"))
 	_, err := sentence.Validate()
 
@@ -108,9 +109,15 @@ func Create(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
 	}
 }
 
-func List(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
+func SentenceList(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
 	var sens []Sentence
 	_, err := dbmap.Select(&sens, "select * from sentences order by id")
 	PanicIf(err)
 	ren.JSON(200, sens)
+}
+
+func SentenceDelete(ren render.Render, params martini.Params, dbmap *gorp.DbMap) {
+	_, err := dbmap.Exec("DELETE FROM sentences WHERE id= $1", params["id"])
+	PanicIf(err)
+	ren.JSON(200, nil)
 }
