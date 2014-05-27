@@ -51,11 +51,19 @@ func newSentence(text, url string) Sentence {
 }
 
 type User struct {
-	Id        int64 `db:"post_id"`
+	Id        int64
 	Email     string
 	Password  string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+func newUser(email, password string) User {
+	return User{
+		Email:     email,
+		Password:  password,
+		CreatedAt: time.Now().UnixNano(),
+	}
 }
 
 func (sen *Sentence) Validate() (bool, error) {
@@ -86,6 +94,9 @@ func main() {
 	m.Post("/sentences", SentenceCreate)
 	m.Get("/sentences", SentenceList)
 	m.Delete("/sentences/:id", SentenceDelete)
+
+	m.Get("/users/:id", UserGet)
+	m.Post("/users", UserCreate)
 
 	m.Run()
 }
@@ -120,4 +131,19 @@ func SentenceDelete(ren render.Render, params martini.Params, dbmap *gorp.DbMap)
 	_, err := dbmap.Exec("DELETE FROM sentences WHERE id= $1", params["id"])
 	PanicIf(err)
 	ren.JSON(200, nil)
+}
+
+func UserGet(ren render.Render, params martini.Params, dbmap *gorp.DbMap) {
+	var usr User
+	log.Println(params)
+	err := dbmap.SelectOne(&usr, "SELECT * from users WHERE id = $1", params["id"])
+	PanicIf(err)
+	ren.JSON(200, usr)
+}
+
+func UserCreate(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
+	usr := newUser(req.FormValue("email"), req.FormValue("password"))
+	err := dbmap.Insert(&usr)
+	PanicIf(err)
+	ren.JSON(200, usr)
 }
