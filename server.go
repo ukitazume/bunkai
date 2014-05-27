@@ -12,6 +12,7 @@ import (
 	"github.com/go-martini/martini"
 	_ "github.com/lib/pq"
 	"github.com/martini-contrib/render"
+	"github.com/martini-contrib/sessions"
 )
 
 func SetupDB() *gorp.DbMap {
@@ -42,8 +43,9 @@ type Sentence struct {
 	CreatedAt int64
 }
 
-func newSentence(text, url string) Sentence {
+func newSentence(usr User, text, url string) Sentence {
 	return Sentence{
+		UserId:    usr.Id,
 		Text:      text,
 		Url:       url,
 		CreatedAt: time.Now().UnixNano(),
@@ -88,25 +90,57 @@ func main() {
 	m.Use(render.Renderer(render.Options{
 		Layout: "layout",
 	}))
+
+	store := sessions.NewCookieStore([]byte("secret123"))
+	m.Use(sessions.Sessions("bunkaisession", store))
 	log.Println("env is", martini.Env)
 
 	m.Get("/", Home)
-	m.Post("/sentences", SentenceCreate)
-	m.Get("/sentences", SentenceList)
-	m.Delete("/sentences/:id", SentenceDelete)
+	m.Post("/sentences", RequireLogin, SentenceCreate)
+	m.Get("/sentences", RequireLogin, SentenceList)
+	m.Delete("/sentences/:id", RequireLogin, SentenceDelete)
 
-	m.Get("/users/:id", UserGet)
+	m.Post("/login", PostLogin)
+	m.Post("/logout", PostLogin)
+	m.Get("/users/me", RequireLogin, UserGet)
 	m.Post("/users", UserCreate)
 
 	m.Run()
+}
+
+func RequireLogin(ren render.Render, req *http.Request, s sessions.Session, dbmap *gorp.DbMap, c martini.Context) {
+	var usr User
+	err := dbmap.SelectOne(&usr, "SELECT * from users WHERE id = $1", s.Get("userId"))
+
+	if err != nil {
+		ren.JSON(http.StatusForbidden, nil)
+		return
+	}
+
+	c.Map(usr)
+}
+
+func PostLogin(req *http.Request, dbmap *gorp.DbMap, s sessions.Session) (int, string) {
+	var userId string
+
+	email, password := req.FormValue("email"), req.FormValue("password")
+	err := dbmap.SelectOne(&userId, "select id from users where email=$1 and password=$2", email, password)
+
+	if err != nil {
+		return 401, "Unauthorized"
+	}
+
+	s.Set("userId", userId)
+
+	return 200, "User id is " + userId
 }
 
 func Home(ren render.Render) {
 	ren.HTML(200, "home", nil)
 }
 
-func SentenceCreate(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
-	sentence := newSentence(req.FormValue("text"), req.FormValue("url"))
+func SentenceCreate(ren render.Render, req *http.Request, dbmap *gorp.DbMap, usr User) {
+	sentence := newSentence(usr, req.FormValue("text"), req.FormValue("url"))
 	_, err := sentence.Validate()
 
 	if err != nil {
@@ -120,9 +154,9 @@ func SentenceCreate(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
 	}
 }
 
-func SentenceList(ren render.Render, req *http.Request, dbmap *gorp.DbMap) {
+func SentenceList(ren render.Render, req *http.Request, dbmap *gorp.DbMap, usr User) {
 	var sens []Sentence
-	_, err := dbmap.Select(&sens, "select * from sentences order by id")
+	_, err := dbmap.Select(&sens, "select * from sentences WHERE userid = $1 order by id", usr.Id)
 	PanicIf(err)
 	ren.JSON(200, sens)
 }
@@ -133,10 +167,10 @@ func SentenceDelete(ren render.Render, params martini.Params, dbmap *gorp.DbMap)
 	ren.JSON(200, nil)
 }
 
-func UserGet(ren render.Render, params martini.Params, dbmap *gorp.DbMap) {
+func UserGet(ren render.Render, params martini.Params, dbmap *gorp.DbMap, s sessions.Session) {
 	var usr User
 	log.Println(params)
-	err := dbmap.SelectOne(&usr, "SELECT * from users WHERE id = $1", params["id"])
+	err := dbmap.SelectOne(&usr, "SELECT * from users WHERE id = $1", s.Get("userId"))
 	PanicIf(err)
 	ren.JSON(200, usr)
 }
