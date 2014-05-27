@@ -15,8 +15,13 @@ import (
 	"github.com/martini-contrib/sessions"
 )
 
+const (
+	CookieSecret = "secretedesse"
+	DBName       = "bunkai"
+)
+
 func SetupDB() *gorp.DbMap {
-	db, err := sql.Open("postgres", "dbname=bunkai sslmode=disable")
+	db, err := sql.Open("postgres", "dbname="+DBName+" sslmode=disable")
 	PanicIf(err)
 
 	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.PostgresDialect{}}
@@ -91,7 +96,7 @@ func main() {
 		Layout: "layout",
 	}))
 
-	store := sessions.NewCookieStore([]byte("secret123"))
+	store := sessions.NewCookieStore([]byte(CookieSecret))
 	m.Use(sessions.Sessions("bunkaisession", store))
 	log.Println("env is", martini.Env)
 
