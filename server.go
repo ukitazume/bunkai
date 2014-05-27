@@ -101,14 +101,22 @@ func main() {
 	log.Println("env is", martini.Env)
 
 	m.Get("/", Home)
-	m.Post("/sentences", RequireLogin, SentenceCreate)
-	m.Get("/sentences", RequireLogin, SentenceList)
-	m.Delete("/sentences/:id", RequireLogin, SentenceDelete)
 
-	m.Post("/login", PostLogin)
-	m.Post("/logout", PostLogin)
-	m.Get("/users/me", RequireLogin, UserGet)
-	m.Post("/users", UserCreate)
+	m.Group("/api", func(m martini.Router) {
+		m.Post("/login", PostLogin)
+		m.Post("/users", UserCreate)
+
+		m.Group("/sentences", func(m martini.Router) {
+			m.Post("", SentenceCreate)
+			m.Get("", SentenceList)
+			m.Delete("/:id", SentenceDelete)
+		}, RequireLogin)
+
+		m.Group("/users", func(m martini.Router) {
+			m.Post("/logout", Logout)
+			m.Get("/me", UserGet)
+		}, RequireLogin)
+	})
 
 	m.Run()
 }
@@ -123,6 +131,11 @@ func RequireLogin(ren render.Render, req *http.Request, s sessions.Session, dbma
 	}
 
 	c.Map(usr)
+}
+
+func Logout(ren render.Render, req *http.Request, s sessions.Session) {
+	s.Delete("userId")
+	ren.JSON(http.StatusAccepted, nil)
 }
 
 func PostLogin(req *http.Request, dbmap *gorp.DbMap, s sessions.Session) (int, string) {
