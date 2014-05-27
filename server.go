@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/md5"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
@@ -40,6 +42,12 @@ func PanicIf(err error) {
 	}
 }
 
+func Md5(org string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(org))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
 type Sentence struct {
 	Id        int64
 	UserId    int64
@@ -68,7 +76,7 @@ type User struct {
 func newUser(email, password string) User {
 	return User{
 		Email:     email,
-		Password:  password,
+		Password:  Md5(password),
 		CreatedAt: time.Now().UnixNano(),
 	}
 }
@@ -142,7 +150,7 @@ func PostLogin(req *http.Request, dbmap *gorp.DbMap, s sessions.Session) (int, s
 	var userId string
 
 	email, password := req.FormValue("email"), req.FormValue("password")
-	err := dbmap.SelectOne(&userId, "select id from users where email=$1 and password=$2", email, password)
+	err := dbmap.SelectOne(&userId, "select id from users where email=$1 and password=$2", email, Md5(password))
 
 	if err != nil {
 		return 401, "Unauthorized"
