@@ -1,1 +1,4 @@
 gin-bin
+client/node_modules/
+client/build/
+client/src/components/

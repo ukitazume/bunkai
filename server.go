@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/coopernurse/gorp"
@@ -18,8 +20,9 @@ import (
 )
 
 const (
-	CookieSecret = "secretedesse"
-	DBName       = "bunkai"
+	CookieSecret       = "secretedesse"
+	DBName             = "bunkai"
+	BowerComponentPath = "./client/src/components/"
 )
 
 func SetupDB() *gorp.DbMap {
@@ -107,8 +110,11 @@ func main() {
 	store := sessions.NewCookieStore([]byte(CookieSecret))
 	m.Use(sessions.Sessions("bunkaisession", store))
 	log.Println("env is", martini.Env)
+	m.Map(martini.Env)
 
-	m.Get("/", Home)
+	m.Group("/", func(m martini.Router) {
+		m.Get("", Home)
+	}, AssetMap)
 
 	m.Group("/api", func(m martini.Router) {
 		m.Post("/login", PostLogin)
@@ -129,7 +135,23 @@ func main() {
 	m.Run()
 }
 
+func AssetMap(c martini.Context) {
+	c.Map(JsComponent())
+}
+
+func JsComponent() []string {
+	jsdirs, err := ioutil.ReadDir(BowerComponentPath)
+	PanicIf(err)
+	var jslibNamePath []string
+	for _, value := range jsdirs {
+		s := []string{BowerComponentPath, value.Name(), "/", value.Name(), ".js"}
+		jslibNamePath = append(jslibNamePath, strings.Join(s, ""))
+	}
+	return jslibNamePath
+}
+
 func RequireLogin(ren render.Render, req *http.Request, s sessions.Session, dbmap *gorp.DbMap, c martini.Context) {
+
 	var usr User
 	err := dbmap.SelectOne(&usr, "SELECT * from users WHERE id = $1", s.Get("userId"))
 
